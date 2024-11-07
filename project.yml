@@ -1,16 +1,29 @@
 name: SMETest
+
+options:
+  bundleIdPrefix: com.hiai
+
 settings:
   GENERATE_INFOPLIST_FILE: YES
   CODE_SIGN_STYLE: Automatic
+  DEVELOPMENT_TEAM: DVS96RS9AX
+
   SWIFT_OBJC_BRIDGING_HEADER: src/Bridging-Header.h
-  OTHER_CFLAGS: -march=armv9.2-a+sme2p1+sme-f64f64+sme-i16i64+sme-f16f16 -pthread
+
+  # iPhone only (1=iPhone, 2=iPad, "1,2"=Universal)
+  TARGETED_DEVICE_FAMILY: "1"
+
   CLANG_CXX_LANGUAGE_STANDARD: c++23
   GCC_C_LANGUAGE_STANDARD: c2x
-options:
-  bundleIdPrefix: com.tzakharko
+
+  # 建议带上 inherited，避免覆盖 Xcode 默认 CFLAGS
+  OTHER_CFLAGS: "$(inherited) -march=armv9.2-a+sme2+sme-f64f64+sme-i16i64+sme-f16f16 -pthread"
+
 targets:
   SMETest:
     type: application
     platform: iOS
     deploymentTarget: "18.0"
     sources: [src]
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.hiai.SMETest

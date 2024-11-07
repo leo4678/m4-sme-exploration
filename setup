@@ -1,39 +1,87 @@
 #!/bin/bash
+set -euo pipefail
 
-# obtain the developer team id
-if [ -z "$XCODE_DEVELOPMENT_TEAM" ]; then
-  echo "Enter your Development Team ID (you can find it on your Apple Developer page)"
-  echo "This will be used to sign the executable to run on your M4 iPad"
-  read -p "> " DEVELOPMENT_TEAM
-fi
-
-
-# obtain the list of paired iPad devices
-DEVICES=$(
-  xcrun devicectl list devices                         \
-   --filter "hardwareProperties.deviceType == 'iPad'"  \
-    --columns "Name"                                   \
-    --hide-default-columns                             \
-    --hide-headers                                     \
-  | tail -n +2
-)
-
-if [ -z "$DEVICES" ]; then
-  >&2 echo "Error: No iPad paired with this machine. Connect an M4 or later iPad and enable the developer mode."
+# devicectl must exist
+if ! xcrun --find devicectl >/dev/null 2>&1; then
+  >&2 echo "Error: devicectl not found. Please install full Xcode and run:"
+  >&2 echo "  sudo xcode-select -s /Applications/Xcode.app/Contents/Developer"
   exit 1
 fi
 
-# Prompt the user to select an option
-IFS=$'\n'
-DEVICES=($DEVICES)
+# obtain the developer team id
+DEVELOPMENT_TEAM="${XCODE_DEVELOPMENT_TEAM:-}"
+if [ -z "$DEVELOPMENT_TEAM" ]; then
+  echo "Enter your Development Team ID (10 characters, e.g. ABCDE12345)"
+  echo "This will be used to sign the executable to run on your iPhone 17 Pro (A19 Pro)"
+  read -p "> " DEVELOPMENT_TEAM
+fi
 
-echo "Select a paired device to run the tests on"
-select DEVICE in "${DEVICES[@]}"; do break; done
+# Team ID sanity check
+if [ "${#DEVELOPMENT_TEAM}" -ne 10 ]; then
+  >&2 echo "Error: Team ID should be 10 characters, but got '${DEVELOPMENT_TEAM}' (len=${#DEVELOPMENT_TEAM})."
+  exit 1
+fi
+
+# Capture BOTH stdout+stderr (your devicectl output is on stderr in practice)
+TABLE="$(xcrun devicectl list devices 2>&1 || true)"
+
+# Parse: keep only iPhone 17 Pro / Pro Max (iPhone18,1 / iPhone18,2)
+DEVICES="$(
+printf '%s\n' "$TABLE" | python3 -c '
+import sys, re
+out = []
+for line in sys.stdin:
+    s = line.rstrip("\n")
+    if not s.strip():
+        continue
+    if s.lstrip().startswith("Name") and "State" in s and "Model" in s:
+        continue
+    if s.strip().startswith("---"):
+        continue
+    if "CoreSimulator detected version change" in s:
+        continue
+
+    # Only keep target models
+    if "(iPhone18,1)" not in s and "(iPhone18,2)" not in s:
+        continue
+
+    # Split by 2+ spaces into columns: Name Hostname Identifier State Model
+    cols = re.split(r"\s{2,}", s.strip())
+    if len(cols) < 5:
+        continue
+
+    name  = cols[0]
+    state = cols[3]
+    model = cols[4]
+    out.append(f"{name}\t{state}\t{model}")
+
+print("\n".join(out))
+'
+)"
+
+if [ -z "$DEVICES" ]; then
+  >&2 echo "Error: No iPhone 17 Pro/Pro Max found from 'xcrun devicectl list devices'."
+  >&2 echo "Debug: raw output (first 60 lines):"
+  printf '%s\n' "$TABLE" | sed -n '1,60p' >&2
+  exit 1
+fi
+
+echo "Select a device to run the tests on"
+IFS=$'\n' read -r -d '' -a OPTIONS < <(printf '%s\0' "$DEVICES")
+
+select OPT in "${OPTIONS[@]}"; do
+  [ -n "${OPT:-}" ] && break
+done
+
+DEVICE_NAME="$(printf '%s' "$OPT" | cut -f1)"
+DEVICE_STATE="$(printf '%s' "$OPT" | cut -f2)"
+DEVICE_MODEL="$(printf '%s' "$OPT" | cut -f3)"
+
+echo "Chosen: $DEVICE_NAME ($DEVICE_STATE) - $DEVICE_MODEL"
 
 echo -e "\033[0;32mUpdating configuration in make.config\033[0m"
-echo "DEVICE=$DEVICE"
-echo "DEVICE=$DEVICE" > make.config
-if [ -n "$DEVELOPMENT_TEAM" ]; then
-  echo "XCODE_DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM"
-  echo "XCODE_DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM" >> make.config
-fi
+echo "DEVICE=$DEVICE_NAME" > make.config
+echo "XCODE_DEVELOPMENT_TEAM=$DEVELOPMENT_TEAM" >> make.config
+
+echo "Wrote make.config:"
+cat make.config

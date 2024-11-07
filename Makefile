@@ -1,7 +1,7 @@
 # Define variables for project paths and scheme
 APP_NAME  = SMETest
 APP_PATH  = ./build/Release-iphoneos/$(APP_NAME).app
-APP_ID    = com.tzakharko.SMETest
+APP_ID    = com.hiai.SMETest
 DEVICE_PATH = Documents/SMETest
 
 COPY = xcrun devicectl device copy from --domain-type appDataContainer --domain-identifier "$(APP_ID)" --device "$(DEVICE)"
@@ -31,15 +31,18 @@ src/benchmarks/%.c: tools/gen_%.py tools/SME.py benchmarks.yaml
 .PHONY: build
 build: benchmarks
 	@echo "\033[0;32m-- Building the app\033[0m"
-	xcodegen generate
-	xcodebuild clean build -configuration Release -allowProvisioningUpdates DEVELOPMENT_TEAM="$(XCODE_DEVELOPMENT_TEAM)"
+	@[ -d SMETest.xcodeproj ] || xcodegen generate
+	xcodebuild clean build -configuration Release  -allowProvisioningUpdates -allowProvisioningDeviceRegistration  DEVELOPMENT_TEAM="$(XCODE_DEVELOPMENT_TEAM)"
 	@echo "\033[0;32m-- Installing the app to $(DEVICE)\033[0m"
 	xcrun devicectl device install app --device "$(DEVICE)"  "$(APP_PATH)"
+
+
 
 .PHONY: run
 run:
 	@echo "\033[0;36mMake sure that $(DEVICE) is unlocked\033[0m"
-	@xcrun devicectl device process launch  --console --device -j log.json "$(DEVICE)" "$(APP_ID)" # | python3 -m json.tool > results.json
+	@xcrun devicectl device process launch --console --device "$(DEVICE)" --json-output log.json "$(APP_ID)"
+
 
 .PHONY: copy_results
 copy_results:
@@ -47,6 +50,10 @@ copy_results:
 	@$(COPY) --source "$(DEVICE_PATH)/cpu_info.json" --destination "results/cpu_info.json"
 	@$(COPY) --source "$(DEVICE_PATH)/op_benchmarks.json" --destination "results/op_benchmarks.json"
 	@$(COPY) --source "$(DEVICE_PATH)/mem_benchmarks.json" --destination "results/mem_benchmarks.json"
+	@$(COPY) --source "$(DEVICE_PATH)/sme-memcpy.json" --destination "results/sme-memcpy.json"
+	@$(COPY) --source "$(DEVICE_PATH)/sme-outer-product.json" --destination "results/sme-outer-product.json"
+	@$(COPY) --source "$(DEVICE_PATH)/sme-vector.json" --destination "results/sme-vector.json"
+	@$(COPY) --source "$(DEVICE_PATH)/ssve-vector.json" --destination "results/ssve-vector.json"
 
 
 .PHONY: reports
@@ -55,3 +62,5 @@ reports:
 	@mv reports/rmarkdown/*.md reports/
 	@mv reports/rmarkdown/figures/*.png reports/figures
 	@rm -r reports/rmarkdown/figures
+
+
